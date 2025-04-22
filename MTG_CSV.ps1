@@ -23,7 +23,8 @@ Where-Object { $_.type_line -match $regex -and `
         $_.games -match "paper" -and `
         $_.collector_number -notmatch "★|T|b" -and `
         $_.set_name -notmatch ".*\b(tokens|promos|Heroes of the Realm)\b.*" -and `
-    ( $_.legalities.vintage -eq "legal" -or ($_.set_type -eq "funny" -and ($_.set_name -ne "Unknown Event" -and $_.set_name -like "Un*"))) } | 
+    ( $_.legalities.vintage -eq "legal" -or ($_.set_type -eq "funny" -and ($_.set_name -ne "Unknown Event" -and $_.set_name -like "Un*"))) 
+} | 
 ForEach-Object {
     $number = ($_.collector_number -replace '[^\d]', '')
     $_ | Add-Member -NotePropertyName 'collector_number_value' -NotePropertyValue ([int]($number)) -PassThru
