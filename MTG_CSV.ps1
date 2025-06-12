@@ -1,10 +1,4 @@
 
-    process {
-        if ($seenNames -notcontains $_.Name) {
-            $seenNames += $_.Name
-            $_
-        }
-    }
 
     end {}
 }
