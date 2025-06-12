@@ -1,10 +1,12 @@
+$bulkDataLocations = Invoke-RestMethod -Uri "https://api.scryfall.com/bulk-data"
 
+$downloadUri = ($bulkDataLocations.data | Where-Object { $_.type -eq "default_cards" }).download_uri
 
-    end {}
-}
+Invoke-WebRequest -Uri $downloadUri -OutFile "rawCards.json"
+
 $firstRecord = $true
 $regex = '^(?=.*\blegendary\b)(?=.*\bcreature\b).*$'
-Get-Content -path "*.json" -Exclude "result.json" | 
+Get-Content -path "rawCards.json" | 
 ConvertFrom-Json | 
 Where-Object { $_.type_line -match $regex -and `
         $_.reprint -ne "True" -and `
