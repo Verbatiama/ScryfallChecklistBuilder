@@ -17,6 +17,7 @@ Where-Object { $_.type_line -match $regex -and `
         $_.set_name -notmatch ".*\b(tokens|promos|Heroes of the Realm)\b.*" -and `
     ( $_.legalities.vintage -eq "legal" -or ($_.set_type -eq "funny" -and ($_.set_name -ne "Unknown Event" -and $_.set_name -like "Un*"))) 
 } | 
+# Remove duplicates based on the name property
 ForEach-Object -Begin {
     $seenNames = @()
 } -Process {
@@ -25,10 +26,12 @@ ForEach-Object -Begin {
         $_
     }
 } |
+# Add collector_number_value as an integer property for sorting
 ForEach-Object {
     $number = ($_.collector_number -replace '[^\d]', '')
     $_ | Add-Member -NotePropertyName 'collector_number_value' -NotePropertyValue ([int]($number)) -PassThru
 } |
+# Output to JSON and pass data to the next step
 ForEach-Object -Begin {
     Remove-Item ".\result.json"
     "[" | Out-File -Append "result.json" 
