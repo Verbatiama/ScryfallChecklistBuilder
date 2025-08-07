@@ -2,7 +2,9 @@ $bulkDataLocations = Invoke-RestMethod -Uri "https://api.scryfall.com/bulk-data"
 
 $downloadUri = ($bulkDataLocations.data | Where-Object { $_.type -eq "default_cards" }).download_uri
 
-Invoke-WebRequest -Uri $downloadUri -OutFile "rawCards.json"
+if (!(Test-Path "rawCards.json") -or ((Get-Date) - (Get-Item "rawCards.json").LastWriteTime).TotalDays -gt 1) {
+    Invoke-WebRequest -Uri $downloadUri -OutFile "rawCards.json"
+}
 
 $firstRecord = $true
 $regex = '^(?=.*\blegendary\b)(?=.*\bcreature\b).*$'
