@@ -17,6 +17,12 @@ Where-Object { $_.type_line -match $regex -and `
         $_.set_name -notmatch ".*\b(tokens|promos|Heroes of the Realm)\b.*" -and `
     ( $_.legalities.vintage -eq "legal" -or ($_.set_type -eq "funny" -and ($_.set_name -ne "Unknown Event" -and $_.set_name -like "Un*"))) 
 } | 
+# Add collector_number_value as an integer property for sorting
+ForEach-Object {
+    $number = ($_.collector_number -replace '[^\d]', '')
+    $_ | Add-Member -NotePropertyName 'collector_number_value' -NotePropertyValue ([int]($number)) -PassThru
+} |
+Sort-Object -Property @{Expression = "released_at"; Descending = $false }, @{Expression = "set_name"; Descending = $false }, @{Expression = { [int]$_.collector_number_value }; Descending = $false } |
 # Remove duplicates based on the name property
 ForEach-Object -Begin {
     $seenNames = @()
@@ -25,11 +31,6 @@ ForEach-Object -Begin {
         $seenNames += $_.Name
         $_
     }
-} |
-# Add collector_number_value as an integer property for sorting
-ForEach-Object {
-    $number = ($_.collector_number -replace '[^\d]', '')
-    $_ | Add-Member -NotePropertyName 'collector_number_value' -NotePropertyValue ([int]($number)) -PassThru
 } |
 # Output to JSON and pass data to the next step
 ForEach-Object -Begin {
@@ -47,6 +48,5 @@ ForEach-Object -Begin {
 } -End { 
     "]" |  Out-File -Append "result.json" 
 } |
-Sort-Object -Property @{Expression = "released_at"; Descending = $false }, @{Expression = "set_name"; Descending = $false }, @{Expression = { [int]$_.collector_number_value }; Descending = $false } |
 Select-Object -Property name, set_name, { $_.prices.usd }, { $_.prices.usd_foil }, released_at, collector_number | 
 Export-CSV "result.csv"
