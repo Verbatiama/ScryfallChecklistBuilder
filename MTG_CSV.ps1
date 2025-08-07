@@ -6,7 +6,6 @@ if (!(Test-Path "rawCards.json") -or ((Get-Date) - (Get-Item "rawCards.json").La
     Invoke-WebRequest -Uri $downloadUri -OutFile "rawCards.json"
 }
 
-$firstRecord = $true
 $regex = '^(?=.*\blegendary\b)(?=.*\bcreature\b).*$'
 Get-Content -path "rawCards.json" | 
 ConvertFrom-Json | 
@@ -36,6 +35,7 @@ ForEach-Object -Begin {
 } |
 # Output to JSON and pass data to the next step
 ForEach-Object -Begin {
+    $firstRecord = $true
     Remove-Item ".\result.json"
     "[" | Out-File -Append "result.json" 
 } -Process {
