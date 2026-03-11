@@ -1,4 +1,4 @@
-$bulkDataLocations = Invoke-RestMethod -Uri "https://api.scryfall.com/bulk-data"
+$bulkDataLocations = Invoke-RestMethod -Uri "https://api.scryfall.com/bulk-data" -Headers @{"Accept"="*/*"; "User-Agent"="MTG_Checklist_Builder"}
 
 $downloadUri = ($bulkDataLocations.data | Where-Object { $_.type -eq "default_cards" }).download_uri
 
