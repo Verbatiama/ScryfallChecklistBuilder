@@ -1,13 +1,22 @@
-$bulkDataLocations = Invoke-RestMethod -Uri "https://api.scryfall.com/bulk-data" -Headers @{"Accept"="*/*"; "User-Agent"="MTG_Checklist_Builder"}
-
-$downloadUri = ($bulkDataLocations.data | Where-Object { $_.type -eq "default_cards" }).download_uri
-
-if (!(Test-Path "rawCards.json") -or ((Get-Date) - (Get-Item "rawCards.json").LastWriteTime).TotalDays -gt 1) {
-    Invoke-WebRequest -Uri $downloadUri -OutFile "rawCards.json"
+if (!(Test-Path "rawCards.jsonl.gz") -or ((Get-Date) - (Get-Item "rawCards.jsonl.gz").LastWriteTime).TotalDays -gt 1) {
+    $bulkDataLocations = Invoke-RestMethod -Uri "https://api.scryfall.com/bulk-data" -Headers @{"Accept" = "*/*"; "User-Agent" = "MTG_Checklist_Builder" }
+    $downloadUri = ($bulkDataLocations.data | Where-Object { $_.type -eq "default_cards" }).jsonl_download_uri
+    Invoke-WebRequest -Uri $downloadUri -OutFile "rawCards.jsonl.gz"
 }
 
 $regex = '^(?=.*\blegendary\b)(?=.*\bcreature\b).*$'
-Get-Content -path "rawCards.json" | 
+& {
+    $gzipStream = New-Object System.IO.Compression.GZipStream([System.IO.File]::OpenRead("$PWD\rawCards.jsonl.gz"), [System.IO.Compression.CompressionMode]::Decompress)
+    $reader = New-Object System.IO.StreamReader($gzipStream)
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            if ($line) { $line }
+        }
+    }
+    finally {
+        $reader.Dispose()
+    }
+} |
 ConvertFrom-Json | 
 Where-Object { $_.type_line -match $regex -and `
         $_.reprint -ne "True" -and `
