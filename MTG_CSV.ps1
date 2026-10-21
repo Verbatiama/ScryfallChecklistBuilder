@@ -36,15 +36,6 @@ ForEach-Object {
     $_ | Add-Member -NotePropertyName 'collector_number_value' -NotePropertyValue ([int]($number)) -PassThru
 } |
 Sort-Object -Property @{Expression = "released_at"; Descending = $false }, @{Expression = "set_name"; Descending = $false }, @{Expression = { [int]$_.collector_number_value }; Descending = $false } |
-# Remove duplicates based on the name property
-ForEach-Object -Begin {
-    $seenNames = @()
-} -Process {
-    if ($seenNames -notcontains $_.Name) {
-        $seenNames += $_.Name
-        $_
-    }
-} |
 # Output to JSON and pass data to the next step
 ForEach-Object -Begin {
     $firstRecord = $true
@@ -62,6 +53,15 @@ ForEach-Object -Begin {
     $_
 } -End { 
     "]" |  Out-File -Append "result.json" 
+} |
+# Remove duplicates based on the name property
+ForEach-Object -Begin {
+    $seenNames = @()
+} -Process {
+    if ($seenNames -notcontains $_.Name) {
+        $seenNames += $_.Name
+        $_
+    }
 } |
 Select-Object -Property id, name, set_name, @{N = 'Regular Price'; E = { $_.prices.usd } }, @{N = 'Foil Price'; E = { $_.prices.usd_foil } }, released_at, @{N = 'collector_number'; E = { $_.collector_number_value } } |
 Export-CSV "result.csv"
