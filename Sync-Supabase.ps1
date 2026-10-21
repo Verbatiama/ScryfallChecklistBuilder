@@ -70,6 +70,8 @@ function Sync-Supabase {
         "apikey"        = $Key
         "Authorization" = "Bearer $Key"
         "Prefer"        = "resolution=merge-duplicates,return=minimal"
+        # PowerShell's default User-Agent starts with "Mozilla/5.0", which Supabase rejects as a browser for secret keys
+        "User-Agent"    = "MTG_Checklist_Builder"
     }
 
     $currentIds = New-Object 'System.Collections.Generic.HashSet[string]'
