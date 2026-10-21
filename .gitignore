@@ -2,3 +2,5 @@
 *.json
 *.gz
 *.jsonl
+.env
+.supabase_state.json
