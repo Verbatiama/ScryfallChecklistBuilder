@@ -23,3 +23,13 @@ create table if not exists public.card_ownership (
 );
 CREATE INDEX IF NOT EXISTS card_ownership_quantity_index
 ON public.card_ownership (quantity);
+
+create table if not exists public.binder_slots (
+  card_id uuid primary key references public.cards (id) on delete cascade,
+  foiling text not null default 'nonfoil' check (foiling in ('nonfoil', 'foil', 'etched')),
+  book    integer  not null check (book > 0),
+  page    integer  not null check (page > 0),
+  slot    integer not null check (slot > 0),
+  -- deferrable so a single upsert can shift positions without colliding mid-statement
+  unique (book, page, slot) deferrable initially immediate
+);

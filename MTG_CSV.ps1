@@ -18,6 +18,7 @@ else{
 
 . "$PSScriptRoot\Sync-Supabase.ps1"
 $dbRows = New-Object 'System.Collections.Generic.List[object]'
+$binderRows = New-Object 'System.Collections.Generic.List[object]'
 
 $regex = '^(?=.*\blegendary\b)(?=.*\bcreature\b).*$'
 
@@ -76,6 +77,7 @@ ForEach-Object -Begin {
         $_
     }
 } |
+Where-Object {$_.reprint -ne "True"} |
 Select-Object -Property id, name, set_name, @{N = 'Regular Price'; E = { $_.prices.usd } }, @{N = 'Foil Price'; E = { $_.prices.usd_foil } }, released_at, @{N = 'collector_number'; E = { $_.collector_number_value } } |
 ForEach-Object -Begin {
     $i = 0
@@ -87,7 +89,19 @@ ForEach-Object -Begin {
 } -End {
     Write-Progress -Activity "Writing result.csv" -Completed
 } |
-Where-Object {$_.reprint -ne "True"} |
+# Assign each checklist row a binder position: 360 cards per book, 9 slots per page
+ForEach-Object -Begin {
+    $rowNumber = 0
+} -Process {
+    $binderRows.Add([ordered]@{
+        card_id = $_.id
+        book    = [int][Math]::Floor($rowNumber / 360) + 1
+        page    = [int][Math]::Floor($rowNumber / 9) + 1
+        slot    = ($rowNumber % 9) + 1
+    })
+    $rowNumber++
+    $_
+} |
 Export-CSV "result.csv"
 
 if (Test-Path "$PSScriptRoot\.env") {
@@ -95,6 +109,10 @@ if (Test-Path "$PSScriptRoot\.env") {
     $envVars = Import-DotEnv "$PSScriptRoot\.env"
     $table = if ($envVars.SUPABASE_TABLE) { $envVars.SUPABASE_TABLE } else { "cards" }
     Sync-Supabase -Rows $dbRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table $table
+    # binder_slots references cards, so it syncs after them. Positions shift together when a card is
+    # added or removed, so send every change in one request to let the deferrable unique constraint pass
+    Sync-Supabase -Rows $binderRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table "binder_slots" `
+        -KeyColumn "card_id" -UpsertBatchSize ([Math]::Max(1, $binderRows.Count))
 }
 else {
     Write-Warning ".env not found; skipping Supabase sync (copy .env.example to get started)"

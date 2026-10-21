@@ -48,21 +48,30 @@ function Get-StringHash([string]$text) {
     }
 }
 
-# Upsert changed rows and delete removed rows, using a local state file of row hashes to skip unchanged rows
+# Upsert changed rows and delete removed rows, using a local state file of row hashes (one section per table) to skip unchanged rows
 function Sync-Supabase {
     param(
         [Parameter(Mandatory)] $Rows,
         [Parameter(Mandatory)] [string]$Url,
         [Parameter(Mandatory)] [string]$Key,
         [string]$Table = "cards",
+        [string]$KeyColumn = "id",
         [string]$StatePath = "$PSScriptRoot\.supabase_state.json",
         [int]$UpsertBatchSize = 500,
         [int]$DeleteBatchSize = 100
     )
 
-    $state = @{}
+    $allState = @{}
     if (Test-Path $StatePath) {
-        (Get-Content $StatePath -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $state[$_.Name] = $_.Value }
+        (Get-Content $StatePath -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $allState[$_.Name] = $_.Value }
+        # Older state files were a flat id -> hash map for a single table; move it under the table being synced
+        if ($allState.Values | Where-Object { $_ -is [string] } | Select-Object -First 1) {
+            $allState = @{ $Table = [pscustomobject]$allState }
+        }
+    }
+    $state = @{}
+    if ($allState[$Table]) {
+        $allState[$Table].PSObject.Properties | ForEach-Object { $state[$_.Name] = $_.Value }
     }
 
     $endpoint = "$($Url.TrimEnd('/'))/rest/v1/$Table"
@@ -78,9 +87,10 @@ function Sync-Supabase {
     $changed = New-Object 'System.Collections.Generic.List[object]'
     foreach ($row in $Rows) {
         $hash = Get-StringHash ($row | ConvertTo-Json -Depth 10 -Compress)
-        [void]$currentIds.Add($row.id)
-        if ($state[$row.id] -ne $hash) {
-            $changed.Add([pscustomobject]@{ Row = $row; Hash = $hash })
+        $rowKey = [string]$row[$KeyColumn]
+        [void]$currentIds.Add($rowKey)
+        if ($state[$rowKey] -ne $hash) {
+            $changed.Add([pscustomobject]@{ Key = $rowKey; Row = $row; Hash = $hash })
         }
     }
     $removed = @($state.Keys | Where-Object { -not $currentIds.Contains($_) })
@@ -88,26 +98,28 @@ function Sync-Supabase {
     $upserted = 0
     $deleted = 0
     try {
+        # Delete first so removed rows free up any unique values (e.g. binder positions) the upserts move into
+        for ($i = 0; $i -lt $removed.Count; $i += $DeleteBatchSize) {
+            $batch = $removed[$i..([Math]::Min($i + $DeleteBatchSize, $removed.Count) - 1)]
+            Invoke-RestMethod -Method Delete -Uri "$($endpoint)?$KeyColumn=in.($($batch -join ','))" -Headers $headers | Out-Null
+            foreach ($id in $batch) { $state.Remove($id) }
+            $deleted += $batch.Count
+        }
+
         for ($i = 0; $i -lt $changed.Count; $i += $UpsertBatchSize) {
             $batch = $changed.GetRange($i, [Math]::Min($UpsertBatchSize, $changed.Count - $i))
             $body = ConvertTo-Json -InputObject @($batch | ForEach-Object { $_.Row }) -Depth 10 -Compress
-            Invoke-RestMethod -Method Post -Uri "$($endpoint)?on_conflict=id" -Headers $headers `
+            Invoke-RestMethod -Method Post -Uri "$($endpoint)?on_conflict=$KeyColumn" -Headers $headers `
                 -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) | Out-Null
-            foreach ($item in $batch) { $state[$item.Row.id] = $item.Hash }
+            foreach ($item in $batch) { $state[$item.Key] = $item.Hash }
             $upserted += $batch.Count
-            Write-Verbose "Upserted $upserted / $($changed.Count) rows"
-        }
-
-        for ($i = 0; $i -lt $removed.Count; $i += $DeleteBatchSize) {
-            $batch = $removed[$i..([Math]::Min($i + $DeleteBatchSize, $removed.Count) - 1)]
-            Invoke-RestMethod -Method Delete -Uri "$($endpoint)?id=in.($($batch -join ','))" -Headers $headers | Out-Null
-            foreach ($id in $batch) { $state.Remove($id) }
-            $deleted += $batch.Count
+            Write-Verbose "Upserted $upserted / $($changed.Count) $Table rows"
         }
     }
     finally {
         # Save progress even on failure so the next run only retries what didn't go through
-        $state | ConvertTo-Json -Depth 2 -Compress | Set-Content -Path $StatePath -Encoding UTF8
-        Write-Verbose "Supabase sync: $upserted upserted, $deleted deleted, $($currentIds.Count - $changed.Count) unchanged"
+        $allState[$Table] = $state
+        $allState | ConvertTo-Json -Depth 3 -Compress | Set-Content -Path $StatePath -Encoding UTF8
+        Write-Verbose "Supabase sync ($Table): $upserted upserted, $deleted deleted, $($currentIds.Count - $changed.Count) unchanged"
     }
 }
