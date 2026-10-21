@@ -4,6 +4,9 @@ if (!(Test-Path "rawCards.jsonl.gz") -or ((Get-Date) - (Get-Item "rawCards.jsonl
     Invoke-WebRequest -Uri $downloadUri -OutFile "rawCards.jsonl.gz"
 }
 
+. "$PSScriptRoot\Sync-Supabase.ps1"
+$dbRows = New-Object 'System.Collections.Generic.List[object]'
+
 $regex = '^(?=.*\blegendary\b)(?=.*\bcreature\b).*$'
 & {
     $gzipStream = New-Object System.IO.Compression.GZipStream([System.IO.File]::OpenRead("$PWD\rawCards.jsonl.gz"), [System.IO.Compression.CompressionMode]::Decompress)
@@ -55,9 +58,19 @@ ForEach-Object -Begin {
         $firstRecord = $false
     }
     $_ | ConvertTo-Json -Depth 5 | Out-File -Append "result.json"
+    $dbRows.Add((ConvertTo-DbRow $_))
     $_
 } -End { 
     "]" |  Out-File -Append "result.json" 
 } |
 Select-Object -Property id, name, set_name, @{N = 'Regular Price'; E = { $_.prices.usd } }, @{N = 'Foil Price'; E = { $_.prices.usd_foil } }, released_at, @{N = 'collector_number'; E = { $_.collector_number_value } } |
 Export-CSV "result.csv"
+
+if (Test-Path "$PSScriptRoot\.env") {
+    $envVars = Import-DotEnv "$PSScriptRoot\.env"
+    $table = if ($envVars.SUPABASE_TABLE) { $envVars.SUPABASE_TABLE } else { "cards" }
+    Sync-Supabase -Rows $dbRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table $table
+}
+else {
+    Write-Warning ".env not found; skipping Supabase sync (copy .env.example to get started)"
+}
