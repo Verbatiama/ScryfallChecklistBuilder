@@ -36,7 +36,6 @@ Write-Verbose "Filtering cards"
 } |
 ConvertFrom-Json | 
 Where-Object { $_.type_line -match $regex -and `
-        $_.reprint -ne "True" -and `
         $_.oversized -ne "True" -and `
         $_.variation -ne "True" -and `
         $_.games -match "paper" -and `
@@ -88,6 +87,7 @@ ForEach-Object -Begin {
 } -End {
     Write-Progress -Activity "Writing result.csv" -Completed
 } |
+Where-Object {$_.reprint -ne "True"} |
 Export-CSV "result.csv"
 
 if (Test-Path "$PSScriptRoot\.env") {
