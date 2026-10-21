@@ -18,7 +18,7 @@ create table if not exists public.card_ownership (
   id          uuid not null references public.cards (id),
   quantity    integer not null default 0 check (quantity >= 0),
   is_specific boolean not null default false,
-  foiling     text not null default 'normal' check (foiling in ('normal', 'foil', 'etched')),
+  foiling     text not null default 'normal' check (foiling in ('nonfoil', 'foil', 'etched')),
   primary key (id, foiling)
 );
 CREATE INDEX IF NOT EXISTS card_ownership_quantity_index
