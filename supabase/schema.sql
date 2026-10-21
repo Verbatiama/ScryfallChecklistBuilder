@@ -11,3 +11,5 @@ create table if not exists public.cards (
   image_display    text,   -- image_uris.display
   card_faces       jsonb   -- array of face objects, null for single-faced cards
 );
+CREATE INDEX card_name_index
+ON public.cards (name); 
