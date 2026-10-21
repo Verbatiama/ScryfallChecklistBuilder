@@ -93,7 +93,7 @@ function Sync-Supabase {
                 -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) | Out-Null
             foreach ($item in $batch) { $state[$item.Row.id] = $item.Hash }
             $upserted += $batch.Count
-            Write-Host "Upserted $upserted / $($changed.Count) rows"
+            Write-Verbose "Upserted $upserted / $($changed.Count) rows"
         }
 
         for ($i = 0; $i -lt $removed.Count; $i += $DeleteBatchSize) {
@@ -106,6 +106,6 @@ function Sync-Supabase {
     finally {
         # Save progress even on failure so the next run only retries what didn't go through
         $state | ConvertTo-Json -Depth 2 -Compress | Set-Content -Path $StatePath -Encoding UTF8
-        Write-Host "Supabase sync: $upserted upserted, $deleted deleted, $($currentIds.Count - $changed.Count) unchanged"
+        Write-Verbose "Supabase sync: $upserted upserted, $deleted deleted, $($currentIds.Count - $changed.Count) unchanged"
     }
 }
