@@ -15,9 +15,11 @@ CREATE INDEX IF NOT EXISTS card_name_index
 ON public.cards (name);
 
 create table if not exists public.card_ownership (
-  id          uuid primary key references public.cards (id),
+  id          uuid not null references public.cards (id),
   quantity    integer not null default 0 check (quantity >= 0),
-  is_specific boolean not null default false
+  is_specific boolean not null default false,
+  foiling     text not null default 'normal' check (foiling in ('normal', 'foil', 'etched')),
+  primary key (id, foiling)
 );
 CREATE INDEX IF NOT EXISTS card_ownership_quantity_index
 ON public.card_ownership (quantity);
