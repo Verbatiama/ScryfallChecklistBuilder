@@ -11,5 +11,13 @@ create table if not exists public.cards (
   image_display    text,   -- image_uris.display
   card_faces       jsonb   -- array of face objects, null for single-faced cards
 );
-CREATE INDEX card_name_index
-ON public.cards (name); 
+CREATE INDEX IF NOT EXISTS card_name_index
+ON public.cards (name);
+
+create table if not exists public.card_ownership (
+  id          uuid primary key references public.cards (id),
+  quantity    integer not null default 0 check (quantity >= 0),
+  is_specific boolean not null default false
+);
+CREATE INDEX IF NOT EXISTS card_ownership_quantity_index
+ON public.card_ownership (quantity);
