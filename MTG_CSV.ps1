@@ -19,6 +19,7 @@ else{
 . "$PSScriptRoot\Sync-Supabase.ps1"
 $dbRows = New-Object 'System.Collections.Generic.List[object]'
 $binderRows = New-Object 'System.Collections.Generic.List[object]'
+$checklistCards = New-Object 'System.Collections.Generic.List[object]'
 
 $regex = '^(?=.*\blegendary\b)(?=.*\bcreature\b).*$'
 
@@ -66,8 +67,10 @@ ForEach-Object -Begin {
     $dbRows.Add((ConvertTo-DbRow $_))
     $_
 } -End { 
-    "]" |  Out-File -Append "result.json" 
+    "]" |  Out-File -Append "result.json"
 } |
+# Reprints stay in the db rows above but are dropped before deduping, so a card whose earliest printing is a reprint keeps its original
+Where-Object {$_.reprint -ne "True"} |
 # Remove duplicates based on the name property
 ForEach-Object -Begin {
     $seenNames = @()
@@ -77,7 +80,8 @@ ForEach-Object -Begin {
         $_
     }
 } |
-Where-Object {$_.reprint -ne "True"} |
+# Keep the full card objects for the collection repo's FullCards.json
+ForEach-Object { $checklistCards.Add($_); $_ } |
 Select-Object -Property id, name, set_name, @{N = 'Regular Price'; E = { $_.prices.usd } }, @{N = 'Foil Price'; E = { $_.prices.usd_foil } }, released_at, @{N = 'collector_number'; E = { $_.collector_number_value } } |
 ForEach-Object -Begin {
     $i = 0
@@ -113,6 +117,79 @@ if (Test-Path "$PSScriptRoot\.env") {
     # added or removed, so send every change in one request to let the deferrable unique constraint pass
     Sync-Supabase -Rows $binderRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table "binder_slots" `
         -KeyColumn "card_id" -UpsertBatchSize ([Math]::Max(1, $binderRows.Count))
+
+    # Write collection.json and FullCards.json into the collection repo, left uncommitted for manual review
+    $repoPath = $envVars.COLLECTION_REPO_PATH
+    if ($repoPath -and (Test-Path $repoPath)) {
+        Write-Verbose "Exporting collection to $repoPath"
+        # dbRows has every printing, for looking up the copy in a slot and its card's other printings
+        $printings = @{}
+        $printingsByName = @{}
+        foreach ($row in $dbRows) {
+            $printings[$row.id] = $row
+            if (-not $printingsByName[$row.name]) { $printingsByName[$row.name] = New-Object 'System.Collections.Generic.List[object]' }
+            $printingsByName[$row.name].Add($row)
+        }
+        $priceColumns = @{ nonfoil = "regular_price"; foil = "foil_price"; etched = "etched_price" }
+
+        # A card counts as owned when any printing of it is
+        $ownedNames = New-Object 'System.Collections.Generic.HashSet[string]'
+        Get-SupabaseRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table "card_ownership" `
+            -Query "select=id&quantity=gt.0&order=id,foiling" | ForEach-Object { [void]$ownedNames.Add($printings[$_.id].name) }
+        # The printing and foiling in each slot are edited in Supabase rather than set here, so read them back
+        $slotCopies = @{}
+        Get-SupabaseRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table "binder_slots" `
+            -Query "select=card_id,printing_id,foiling&order=card_id" | ForEach-Object { $slotCopies[$_.card_id] = $_ }
+
+        # checklistCards and binderRows come from the same stream, so they line up by index
+        $collection = for ($i = 0; $i -lt $checklistCards.Count; $i++) {
+            $card = $checklistCards[$i]
+            $slot = $binderRows[$i]
+            $copy = $slotCopies[$card.id]
+            $printingId = if ($copy.printing_id) { $copy.printing_id } else { $card.id }
+            $foiling = if ($copy.foiling) { $copy.foiling } else { "nonfoil" }
+            $printing = $printings[$printingId]
+            # Price the copy in the slot at its foiling, then its other finishes. A printing with no prices at all
+            # takes the cheapest of the card's other printings, at the same foiling if any have one
+            $price = @($printing[$priceColumns[$foiling]], $printing.regular_price, $printing.foil_price, $printing.etched_price) |
+                Where-Object { $null -ne $_ } | Select-Object -First 1
+            if ($null -eq $price) {
+                $others = $printingsByName[$card.name]
+                $price = $others | ForEach-Object { $_[$priceColumns[$foiling]] } | Where-Object { $null -ne $_ } | Sort-Object | Select-Object -First 1
+                if ($null -eq $price) {
+                    $price = $others | ForEach-Object { $_.regular_price; $_.foil_price; $_.etched_price } | Where-Object { $null -ne $_ } |
+                        Sort-Object | Select-Object -First 1
+                }
+            }
+            [ordered]@{
+                Id         = $printingId
+                Name       = $card.name
+                Owned      = [int]$ownedNames.Contains($card.name)
+                Foiling    = $foiling
+                Price      = if ($null -ne $price) { [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '${0:F2}', $price) } else { $null }
+                "Set Name" = $card.set_name
+                Book       = $slot.book
+                Page       = $slot.page
+                Slot       = $slot.slot
+            }
+        }
+        $collectionJson = ConvertTo-Json -InputObject @($collection) -Depth 2
+        [System.IO.File]::WriteAllText((Join-Path $repoPath "collection.json"), $collectionJson + [Environment]::NewLine)
+
+        # Same layout as result.json: one pretty-printed object per card with "," lines between
+        $fullCardLines = New-Object 'System.Collections.Generic.List[string]'
+        $fullCardLines.Add("[")
+        foreach ($card in $checklistCards) {
+            if ($fullCardLines.Count -gt 1) { $fullCardLines.Add(",") }
+            $fullCardLines.Add(($card | ConvertTo-Json -Depth 5))
+        }
+        $fullCardLines.Add("]")
+        [System.IO.File]::WriteAllLines((Join-Path $repoPath "FullCards.json"), $fullCardLines)
+        Write-Verbose "Exported $($checklistCards.Count) cards; review and commit the changes in $repoPath"
+    }
+    else {
+        Write-Warning "COLLECTION_REPO_PATH not set in .env or not found; skipping collection export"
+    }
 }
 else {
     Write-Warning ".env not found; skipping Supabase sync (copy .env.example to get started)"

@@ -26,7 +26,8 @@ CREATE INDEX IF NOT EXISTS card_ownership_quantity_index
 ON public.card_ownership (quantity);
 
 create table if not exists public.binder_slots (
-  card_id uuid primary key references public.cards (id) on delete cascade,
+  card_id uuid primary key references public.cards (id) on delete cascade,  -- checklist card the slot belongs to
+  printing_id uuid references public.cards (id),  -- copy actually in the slot; null means the checklist printing
   foiling text not null default 'nonfoil' check (foiling in ('nonfoil', 'foil', 'etched')),
   book    integer  not null check (book > 0),
   page    integer  not null check (page > 0),

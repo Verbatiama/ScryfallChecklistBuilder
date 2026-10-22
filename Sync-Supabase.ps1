@@ -35,7 +35,39 @@ function ConvertTo-DbRow($card) {
         image_grid       = $images.grid
         image_display    = $images.display
         card_faces       = if ($card.card_faces) { @($card.card_faces) } else { $null }
+        finishes         = @($card.finishes)
     }
+}
+
+function Get-SupabaseHeaders([string]$Key) {
+    @{
+        "apikey"        = $Key
+        "Authorization" = "Bearer $Key"
+        # PowerShell's default User-Agent starts with "Mozilla/5.0", which Supabase rejects as a browser for secret keys
+        "User-Agent"    = "MTG_Checklist_Builder"
+    }
+}
+
+# Read every row matching a PostgREST query, paging past the per-request row limit. The query needs an order for stable paging
+function Get-SupabaseRows {
+    param(
+        [Parameter(Mandatory)] [string]$Url,
+        [Parameter(Mandatory)] [string]$Key,
+        [Parameter(Mandatory)] [string]$Table,
+        [Parameter(Mandatory)] [string]$Query,
+        [int]$PageSize = 1000
+    )
+
+    $endpoint = "$($Url.TrimEnd('/'))/rest/v1/$Table"
+    $headers = Get-SupabaseHeaders $Key
+    $offset = 0
+    do {
+        # Assign before wrapping: @(Invoke-RestMethod ...) would nest the response array as a single element
+        $page = Invoke-RestMethod -Uri "$($endpoint)?$Query&limit=$PageSize&offset=$offset" -Headers $headers
+        $page = @($page)
+        $page
+        $offset += $PageSize
+    } while ($page.Count -eq $PageSize)
 }
 
 function Get-StringHash([string]$text) {
@@ -75,13 +107,8 @@ function Sync-Supabase {
     }
 
     $endpoint = "$($Url.TrimEnd('/'))/rest/v1/$Table"
-    $headers = @{
-        "apikey"        = $Key
-        "Authorization" = "Bearer $Key"
-        "Prefer"        = "resolution=merge-duplicates,return=minimal"
-        # PowerShell's default User-Agent starts with "Mozilla/5.0", which Supabase rejects as a browser for secret keys
-        "User-Agent"    = "MTG_Checklist_Builder"
-    }
+    $headers = Get-SupabaseHeaders $Key
+    $headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
 
     $currentIds = New-Object 'System.Collections.Generic.HashSet[string]'
     $changed = New-Object 'System.Collections.Generic.List[object]'
