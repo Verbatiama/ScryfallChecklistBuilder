@@ -41,8 +41,7 @@ Where-Object { $_.type_line -match $regex -and `
         $_.oversized -ne "True" -and `
         $_.variation -ne "True" -and `
         $_.games -match "paper" -and `
-        $_.collector_number -notmatch "★|T|b" -and `
-        $_.set_name -notmatch ".*\b(tokens|promos|Heroes of the Realm)\b.*" -and `
+        $_.set_name -notmatch ".*\b(tokens|Heroes of the Realm)\b.*" -and `
     ( $_.legalities.vintage -eq "legal" -or ($_.set -eq "fra" -or $_.set -eq "frc") -or ($_.set_type -eq "funny" -and ($_.set_name -ne "Unknown Event" -and $_.set_name -like "Un*"))) 
 } | 
 # Add collector_number_value as an integer property for sorting
@@ -69,8 +68,10 @@ ForEach-Object -Begin {
 } -End { 
     "]" |  Out-File -Append "result.json"
 } |
-# Reprints stay in the db rows above but are dropped before deduping, so a card whose earliest printing is a reprint keeps its original
-Where-Object {$_.reprint -ne "True"} |
+Where-Object {
+        $_.collector_number -notmatch "★|T|b" -and `
+        $_.reprint -ne "True"
+    } |
 # Remove duplicates based on the name property
 ForEach-Object -Begin {
     $seenNames = @()
