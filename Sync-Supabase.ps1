@@ -31,7 +31,7 @@ function ConvertTo-DbRow($card) {
         foil_price       = ConvertTo-Price $card.prices.usd_foil
         etched_price     = ConvertTo-Price $card.prices.usd_etched
         released_at      = $card.released_at
-        collector_number = [int]$card.collector_number_value
+        collector_number = $card.collector_number
         image_grid       = $images.grid
         image_display    = $images.display
         card_faces       = if ($card.card_faces) { @($card.card_faces) } else { $null }
