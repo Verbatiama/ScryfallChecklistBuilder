@@ -9,7 +9,8 @@ create table if not exists public.cards (
   collector_number integer,
   image_grid       text,   -- image_uris.grid
   image_display    text,   -- image_uris.display
-  card_faces       jsonb   -- array of face objects, null for single-faced cards
+  card_faces       jsonb,  -- array of face objects, null for single-faced cards
+  finishes         text[]  -- subset of 'nonfoil', 'foil', 'etched'
 );
 CREATE INDEX IF NOT EXISTS card_name_index
 ON public.cards (name);
