@@ -6,7 +6,7 @@ create table if not exists public.cards (
   foil_price       numeric,
   etched_price     numeric,
   released_at      date,
-  collector_number integer,
+  collector_number text,
   image_grid       text,   -- image_uris.grid
   image_display    text,   -- image_uris.display
   card_faces       jsonb,  -- array of face objects, null for single-faced cards
