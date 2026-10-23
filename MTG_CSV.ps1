@@ -114,10 +114,29 @@ if (Test-Path "$PSScriptRoot\.env") {
     $envVars = Import-DotEnv "$PSScriptRoot\.env"
     $table = if ($envVars.SUPABASE_TABLE) { $envVars.SUPABASE_TABLE } else { "cards" }
     Sync-Supabase -Rows $dbRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table $table
-    # binder_slots references cards, so it syncs after them. Positions shift together when a card is
-    # added or removed, so send every change in one request to let the deferrable unique constraint pass
-    Sync-Supabase -Rows $binderRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table "binder_slots" `
-        -KeyColumn "card_id" -UpsertBatchSize ([Math]::Max(1, $binderRows.Count))
+    # Refuse to move a card that already has a binder position, since that would mean re-sleeving the binders by hand
+    $savedPositions = @{}
+    Get-SupabaseRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table "binder_slots" `
+        -Query "select=card_id,book,page,slot&order=card_id" | ForEach-Object { $savedPositions[$_.card_id] = $_ }
+    $movedCount = 0
+    for ($i = 0; $i -lt $binderRows.Count; $i++) {
+        $row = $binderRows[$i]
+        $saved = $savedPositions[$row.card_id]
+        if ($saved -and ($saved.book -ne $row.book -or $saved.page -ne $row.page -or $saved.slot -ne $row.slot)) {
+            Write-Host ("{0} would move from book {1} page {2} slot {3} to book {4} page {5} slot {6}" -f `
+                $checklistCards[$i].name, $saved.book, $saved.page, $saved.slot, $row.book, $row.page, $row.slot) -ForegroundColor Red
+            $movedCount++
+        }
+    }
+    if ($movedCount -gt 0) {
+        Write-Host "$movedCount binder positions would change; skipping binder_slots sync" -ForegroundColor Red
+    }
+    else {
+        # binder_slots references cards, so it syncs after them. Positions shift together when a card is
+        # added or removed, so send every change in one request to let the deferrable unique constraint pass
+        Sync-Supabase -Rows $binderRows -Url $envVars.SUPABASE_URL -Key $envVars.SUPABASE_KEY -Table "binder_slots" `
+            -KeyColumn "card_id" -UpsertBatchSize ([Math]::Max(1, $binderRows.Count))
+    }
 
     # Write collection.json and FullCards.json into the collection repo, left uncommitted for manual review
     $repoPath = $envVars.COLLECTION_REPO_PATH
